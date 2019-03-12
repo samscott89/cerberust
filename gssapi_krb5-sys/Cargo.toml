@@ -1,0 +1,11 @@
+[package]
+name = "gssapi_krb5-sys"
+version = "0.1.0"
+authors = ["Sam Scott <sam.scott89@gmail.com>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.42"

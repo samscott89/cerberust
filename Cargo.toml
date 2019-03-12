@@ -1,0 +1,11 @@
+[package]
+name = "krb5"
+version = "0.1.0"
+authors = ["Sam Scott <sam.scott89@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+gssapi_krb5-sys = { path = "gssapi_krb5-sys" }
+
+[workspace]
+members = [".", "gssapi_krb5-sys"]

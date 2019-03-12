@@ -1,151 +1,146 @@
-/**
- * Copyright (c) 2006-2018 Apple Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- **/
+use crate::*;
 
-#include <Python.h>
+use std::{ptr, mem};
 
-#include "kerberosbasic.h"
-#include "kerberospw.h"
-#include "kerberosgss.h"
+static krb5_mech_oid_bytes: &'static [u8] = b"\x2a\x86\x48\x86\xf7\x12\x01\x02\x02";
+const krb5_mech_oid: gss_OID_desc = gss_OID_desc_struct { length: 9, elements: &krb5_mech_oid_byte };
+static spnego_mech_oid_bytes: &'static [u8] = b"\x2b\x06\x01\x05\x05\x02";
+const spnego_mech_oid: gss_OID_desc = gss_OID_desc_struct { length: 6, elements: &spnego_mech_oid_bytes };
 
+struct KrbError;
+struct BasicAuthError;
+struct PwdChangeError;
+struct GssError(u32, u32);
 
-static krb5_mech_oid_bytes &'static [u8] = "\x2a\x86\x48\x86\xf7\x12\x01\x02\x02";
-gss_OID_desc krb5_mech_oid = { 9, &krb5_mech_oid_bytes };
+struct GssClient {
+    state: gss_client_state,
+    delegate_state: Option<gss_server_state>,
+}
 
-static char spnego_mech_oid_bytes[] = "\x2b\x06\x01\x05\x05\x02";
-gss_OID_desc spnego_mech_oid = { 6, &spnego_mech_oid_bytes };
-
-PyObject *KrbException_class;
-PyObject *BasicAuthException_class;
-PyObject *PwdChangeException_class;
-PyObject *GssException_class;
-
-static PyObject *checkPassword(PyObject *self, PyObject *args)
-{
-    const char *user = NULL;
-    const char *pswd = NULL;
-    const char *service = NULL;
-    const char *default_realm = NULL;
-    int result = 0;
-
-    if (! PyArg_ParseTuple(args, "ssss", &user, &pswd, &service, &default_realm)) {
-        return NULL;
+impl Drop for GssClient {
+    fn drop(self) {
+        if !state.is_null() {
+            unsafe {
+                authenticate_gss_client_clean(&mut state);
+            }
+        }
     }
+}
 
-    result = authenticate_user_krb5pwd(user, pswd, service, default_realm);
+fn import_name(name: &str) -> Result<gss_name_t, GssError> {
+    let mut name_token = gss_buffer_desc_struct {
+        length: len(name),
+        value: name.as_ptr(),
+    };
+    let mut min_stat = 0;
+    let mut output: gss_name_struct = mem::unintialized();
+    let res = unsafe {
+        gss_import_name(
+            &mut internal_res,
+            &name_token,
+            &krb5_mech_oid),
+            &mut output,
+        )
+    };
 
-    if (result) {
-        return Py_INCREF(Py_True), Py_True;
+    if gss_calling_error(res) {
+        Err(GssError(res, min_stat))
     } else {
-        return NULL;
+        Ok(Box::into_raw(Box::new(output)))
     }
 }
 
-static PyObject *changePassword(PyObject *self, PyObject *args)
+impl GssClient {
+    fn new(service: &str, delegate_state: Option<gss_server_state>, principal: Option<&str>) -> Self {
+        let server_name = import_name(service).unwrap();
+
+        // Use the delegate credentials if they exist
+        let client_creds = if let Some(state) = delegate_state {
+            state.client_creds
+        }
+        // If available use the principal to extract its associated credentials
+        else if let Some(principal) = principal {
+            let mut client_creds: gss_cred_id_t = mem::unintialized();
+            let principal = import_name(principal).unwrap();
+
+            let mut min_stat = 0;
+            let res = unsafe {
+                gss_acquire_cred(
+                    &0,
+                    &principal,
+                    GSS_C_INDEFINITE,
+                    GSS_C_NO_OID_SET,
+                    GSS_C_INITIATE,
+                    &client_creds, 
+                    0,
+                    0
+                )
+            };
+
+            if gss_calling_error(res) {
+                // return Err(GssError(res, min_stat));
+                panic!("Failed to acquire credentials");
+            } else {
+                Box::into_raw(Box::new(output))
+            }
+        } else {
+            ptr::null()
+        }
+
+        }
+
+        else if (principal && *principal) {
+            maj_stat = gss_acquire_cred(
+                &min_stat, name, GSS_C_INDEFINITE, GSS_C_NO_OID_SET,
+                GSS_C_INITIATE, &state->client_creds, NULL, NULL
+            );
+            if (GSS_ERROR(maj_stat)) {
+                set_gss_error(maj_stat, min_stat);
+                ret = AUTH_GSS_ERROR;
+                goto end;
+            }
+
+            maj_stat = gss_release_name(&min_stat, &name);
+            if (GSS_ERROR(maj_stat)) {
+                set_gss_error(maj_stat, min_stat);
+                ret = AUTH_GSS_ERROR;
+                goto end;
+            }
+        }
+
+        let state = gss_client_state {
+            context: ptr::null(),
+            server_name,
+            mech_oid: &krb5_mech_oid,
+            gss_flags:  GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG,
+            client_creds,
+            username: ptr::null(),
+            response: ptr::null(),
+            responseConf: ptr::null(),
+        }
+
+        Service {
+            state, None
+        }
+    }
+}
+
+int authenticate_gss_client_init(
+    const char* service, const char* principal, long int gss_flags,
+    gss_server_state* delegatestate, gss_OID mech_oid, gss_client_state* state
+)
 {
-    const char *newpswd = NULL;
-    const char *oldpswd = NULL;
-    const char *user = NULL;
-    int result = 0;
+    
 
-    if (! PyArg_ParseTuple(args, "sss", &user, &oldpswd, &newpswd)) {
-        return NULL;
-    }
-
-    result = change_user_krb5pwd(user, oldpswd, newpswd);
-
-    if (result) {
-        return Py_INCREF(Py_True), Py_True;
-    } else {
-        return NULL;
-    }
+end:
+    return ret;
 }
 
-static PyObject *getServerPrincipalDetails(PyObject *self, PyObject *args)
-{
-    const char *service = NULL;
-    const char *hostname = NULL;
-    char* result = NULL;
-
-    if (! PyArg_ParseTuple(args, "ss", &service, &hostname)) {
-        return NULL;
-    }
-
-    result = server_principal_details(service, hostname);
-
-    if (result != NULL) {
-        PyObject* pyresult = Py_BuildValue("s", result);
-        free(result);
-        return pyresult;
-    } else {
-        return NULL;
-    }
-}
-
-static void
-#if PY_VERSION_HEX >= 0x03020000
-destroy_gss_client(PyObject *obj) {
-    gss_client_state *state = PyCapsule_GetPointer(obj, NULL);
-#else
-destroy_gss_client(void *obj) {
-    gss_client_state *state = (gss_client_state *)obj;
-#endif
-    if (state) {
-        authenticate_gss_client_clean(state);
-        free(state);
-    }
-}
 
 static PyObject* authGSSClientInit(PyObject* self, PyObject* args, PyObject* keywds)
 {
-    const char *service = NULL;
-    const char *principal = NULL;
-    gss_client_state *state = NULL;
-    PyObject *pystate = NULL;
-    gss_server_state *delegatestate = NULL;
-    PyObject *pydelegatestate = NULL;
     gss_OID mech_oid = GSS_C_NO_OID;
-    PyObject *pymech_oid = NULL;
-    static char *kwlist[] = {
-        "service", "principal", "gssflags", "delegated", "mech_oid", NULL
-    };
     long int gss_flags = GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG;
-    int result = 0;
-
-    if (! PyArg_ParseTupleAndKeywords(
-        args, keywds, "s|zlOO", kwlist,
-        &service, &principal, &gss_flags, &pydelegatestate, &pymech_oid
-    )) {
-        return NULL;
-    }
-
-    state = (gss_client_state *) malloc(sizeof(gss_client_state));
-    if (state == NULL)
-    {
-        PyErr_NoMemory();
-        return NULL;
-    }
-    pystate = PyCObject_FromVoidPtr(state, &destroy_gss_client);
-
-    if (pydelegatestate != NULL && PyCObject_Check(pydelegatestate)) {
-        delegatestate = (gss_server_state*)PyCObject_AsVoidPtr(pydelegatestate);
-    }
-
-    if (pymech_oid != NULL && PyCObject_Check(pymech_oid)) {
-        mech_oid = (gss_OID)PyCObject_AsVoidPtr(pymech_oid);
-    }
 
     result = authenticate_gss_client_init(
         service, principal, gss_flags, delegatestate, mech_oid, state
