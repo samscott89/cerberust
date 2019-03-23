@@ -1,4 +1,5 @@
 use gssapi_krb5_sys;
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::ops;
 use std::os::raw::c_void;
@@ -22,6 +23,78 @@ impl Buffer {
 
     pub unsafe fn get_handle(&mut self) -> gssapi_krb5_sys::gss_buffer_t {
         &mut self.buffer_desc
+    }
+
+    pub fn as_base64(&self) -> String {
+        data_encoding::BASE64.encode(&self)
+    }
+
+    pub fn from_base64(s: &str) -> Result<Self, ()> {
+        data_encoding::BASE64.decode(s.as_bytes()).map_err(|_| ())
+            .map(Buffer::from)
+    }
+}
+
+impl std::fmt::Display for Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = String::from_utf8(self.to_vec()).map_err(|e| { println!("{:?}", e); std::fmt::Error })?;
+        write!(f, "{}", s)
+    }
+}
+
+
+impl core::str::FromStr for Buffer {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, ()> {
+        // let s = s.as_bytes().to_vec();
+        Ok(Buffer {
+            buffer_desc: gssapi_krb5_sys::gss_buffer_desc {
+                length: s.len(),
+                value: CString::new(s).unwrap().into_raw() as *mut std::ffi::c_void,
+            }
+        })
+    }
+}
+
+impl From<Vec<u8>> for Buffer {
+    fn from(other: Vec<u8>) -> Self {
+        Buffer {
+            buffer_desc: gssapi_krb5_sys::gss_buffer_desc {
+                length: other.len(),
+                value: Box::into_raw(other.into_boxed_slice()) as *mut std::ffi::c_void,
+            }
+        }
+    }
+}
+
+impl From<Buffer> for String {
+    fn from(other: Buffer) -> String {
+        let length = other.buffer_desc.length;
+        let value = other.buffer_desc.value;
+
+        if length == 0 || value.is_null() {
+            String::new()
+        } else {
+            unsafe {
+                CStr::from_ptr(value as *mut i8).to_str().expect("invalid string").to_string()
+            }
+        }
+    }
+}
+
+impl From<Buffer> for Vec<u8> {
+    fn from(other: Buffer) -> Vec<u8> {
+        let length = other.buffer_desc.length;
+        let value = other.buffer_desc.value;
+
+        if length == 0 || value.is_null() {
+            Vec::new()
+        } else {
+            // let slice: &[u8] = unsafe {
+            //     std::slice::from_raw_parts(value as *const u8, length)
+            // };
+            other.to_vec()
+        }
     }
 }
 
@@ -120,3 +193,4 @@ impl<'a> From<&'a Buffer> for BufferRef<'a> {
         }
     }
 }
+

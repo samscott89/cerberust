@@ -8,29 +8,44 @@ pub struct OID {
     owned: bool,
 }
 
+const KRB5_MECH_OID_BYTES: &[u8] = b"\x2a\x86\x48\x86\xf7\x12\x01\x02\x02";
+const KRB5_MECH_OID: gssapi_krb5_sys::gss_OID_desc_struct = 
+    gssapi_krb5_sys::gss_OID_desc_struct  { length: 9, elements: KRB5_MECH_OID_BYTES.as_ptr() as *mut std::ffi::c_void };
+
 impl OID {
-    pub unsafe fn new(oid: gssapi_krb5_sys::gss_OID) -> Self {
+    pub unsafe fn new<T>(oid: *mut T) -> Self {
         OID {
-            oid: oid,
+            oid: oid as gssapi_krb5_sys::gss_OID,
             owned: true,
         }
     }
 
-    pub fn empty() -> Self {
-        unsafe { OID::new(ptr::null_mut()) }
-    }
-
-    pub unsafe fn nt_hostbased_service() -> Self {
+    pub unsafe fn new_static<T>(oid: *mut T) -> Self {
         OID {
-            oid: gssapi_krb5_sys::GSS_C_NT_HOSTBASED_SERVICE,
+            oid: oid as gssapi_krb5_sys::gss_OID,
             owned: false,
         }
     }
+
+    pub fn empty() -> Self {
+        unsafe { OID::new::<gssapi_krb5_sys::gss_OID>(ptr::null_mut()) }
+    }
+
+    pub fn nt_hostbased_service() -> Self {
+        unsafe {
+            Self::new_static(gssapi_krb5_sys::GSS_C_NT_HOSTBASED_SERVICE)
+        }
+    }
     
-    pub unsafe fn nt_user_name() -> Self {
-        OID {
-            oid: gssapi_krb5_sys::GSS_C_NT_USER_NAME,
-            owned: false,
+    pub fn nt_user_name() -> Self {
+        unsafe {
+            Self::new_static(gssapi_krb5_sys::GSS_C_NT_USER_NAME)
+        }
+    }
+
+    pub fn krb_service() -> Self {
+        unsafe {
+            Self::new_static(gssapi_krb5_sys::GSS_KRB5_NT_PRINCIPAL_NAME as *mut gssapi_krb5_sys::gss_OID)
         }
     }
 

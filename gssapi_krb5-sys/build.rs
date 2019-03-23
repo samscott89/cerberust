@@ -9,12 +9,12 @@ fn main() {
     println!("cargo:rustc-link-lib=krb5");
     println!("cargo:rustc-link-lib=gssapi_krb5");
 
-    let gss_types = "(OM_.+|gss_.+)";
-    let gss_vars = "GSS_.+";
-    let gss_funcs = "gss_.*";
-    let krb_types = "krb5_.+";
-    let krb_vars = "KRB5_.+";
-    let krb_funcs = "krb5_.*";
+    let gss_types = "^(OM_.+|gss_.+)";
+    let gss_vars = "^GSS_.+";
+    let gss_funcs = "^gss_.*";
+    let krb_types = "^krb5_.+";
+    let krb_vars = "^KRB5_.+";
+    let krb_funcs = "^krb5_.*";
     
 
     // The bindgen::Builder is the main entry point

@@ -6,6 +6,8 @@ edition = "2018"
 
 [dependencies]
 gssapi_krb5-sys = { path = "gssapi_krb5-sys" }
+read_input = "0.8.0"
+data-encoding = "2.1.2"
 
 [workspace]
 members = [".", "gssapi_krb5-sys"]
