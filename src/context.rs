@@ -18,8 +18,8 @@ pub struct Context {
 
 #[derive(Clone, Debug)]
 pub struct ContextInfo {
-    client: String,
-    server: String,
+    pub client: String,
+    pub server: String,
 }
 
 
