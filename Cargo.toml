@@ -1,5 +1,5 @@
 [package]
-name = "krb5"
+name = "cerberust"
 version = "0.1.0"
 authors = ["Sam Scott <sam.scott89@gmail.com>"]
 edition = "2018"

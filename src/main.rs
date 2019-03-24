@@ -1,6 +1,6 @@
-use krb5::buffer::Buffer;
-use krb5::context::{AcceptContext, InitiateContext};
-use krb5::kerberos::*;
+use cerberust::buffer::Buffer;
+use cerberust::context::{AcceptContext, InitiateContext};
+use cerberust::kerberos::*;
 use read_input::prelude::*;
 
 fn main() {
