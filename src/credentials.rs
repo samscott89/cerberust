@@ -100,11 +100,18 @@ impl Drop for Credentials {
     }
 }
 
+#[repr(u8)]
+pub enum Usage {
+    Both = 0,
+    Initiate = 1,
+    Accept = 2,
+}
+
 pub struct CredentialsBuilder {
     desired_name: Name,
     time_req: u32,
     desired_mechs: OIDSet,
-    cred_usage: isize,
+    cred_usage: Usage,
     impersonator: Option<Credentials>
 }
 
@@ -115,7 +122,7 @@ impl CredentialsBuilder {
             desired_name: desired_name.into(),
             time_req: 0,
             desired_mechs: OIDSet::c_no_oid_set(),
-            cred_usage: 0,
+            cred_usage: Usage::Both,
             impersonator: None
         }
     }
@@ -132,6 +139,11 @@ impl CredentialsBuilder {
     
     pub fn desired_mechs(mut self, desired_mechs: OIDSet) -> Self {
         self.desired_mechs = desired_mechs;
+        self
+    }
+
+    pub fn usage(mut self, usage: Usage) -> Self {
+        self.cred_usage = usage;
         self
     }
 

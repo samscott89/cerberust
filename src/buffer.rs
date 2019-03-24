@@ -33,6 +33,14 @@ impl Buffer {
         data_encoding::BASE64.decode(s.as_bytes()).map_err(|_| ())
             .map(Buffer::from)
     }
+
+    pub fn to_option(self) -> Option<Buffer> {
+        if self.buffer_desc.length == 0 || self.buffer_desc.value.is_null() {
+            None
+        } else {
+            Some(self)
+        }
+    }
 }
 
 impl std::fmt::Display for Buffer {

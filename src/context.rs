@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::{mem, ptr};
 
 use super::buffer::Buffer;
-use super::credentials::Credentials;
+use super::credentials::{Credentials, Usage};
 use super::error::{Error, Result};
 use super::name::Name;
 use super::oid::OID;
@@ -157,6 +157,8 @@ impl InitiateContext {
             )
         };
 
+        let output_token = output_token.to_option();
+
         let actual_mech_type = unsafe { OID::new(actual_mech_type) };
 
         if state.context_handle.is_null() {
@@ -175,9 +177,9 @@ impl InitiateContext {
             };
             let _ = mem::replace(self, ctxt);
 
-            Ok(None)
+            Ok(output_token)
         } else if major_status == gssapi_krb5_sys::GSS_S_CONTINUE_NEEDED {
-            Ok(Some(output_token))
+            Ok(output_token)
         } else {
             Err(Error::new(major_status, minor_status, actual_mech_type))
         }
@@ -211,26 +213,33 @@ pub struct AcceptContextBuilder {
 }
 
 impl AcceptContextBuilder {
-    pub fn new(credentials: Credentials) -> Self {
-        AcceptContextBuilder {
-            state: AcceptContextState::new(credentials),
-        }
+    pub fn new<T: Into<Name>>(server_name: T) -> Result<Self> {
+        let credentials = Credentials::accept(server_name)
+                            .usage(Usage::Accept)
+                            .build()?;
+        let state = AcceptContextState {
+            acceptor_credentials: credentials,
+            context_handle: ptr::null_mut(),
+        };
+        Ok(AcceptContextBuilder {
+            state,
+        })
     }
 
-    pub fn step(self, input_token: Buffer) -> Result<AcceptContext> {
-        self.state.step(input_token)
+    pub fn build(self) -> AcceptContext {
+        AcceptContext::Continue {
+            state: self.state
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum AcceptContext {
     Continue {
-        acceptor: AcceptContextState,
-        token: Buffer,
+        state: AcceptContextState,
     },
     Done {
         context: Context,
-        token: Buffer,
     },
 }
 
@@ -240,15 +249,14 @@ pub struct AcceptContextState {
     context_handle: gssapi_krb5_sys::gss_ctx_id_t,
 }
 
-impl AcceptContextState {
-    fn new(credentials: Credentials) -> Self {
-        AcceptContextState {
-            acceptor_credentials: credentials,
-            context_handle: ptr::null_mut(),
-        }
-    }
+impl AcceptContext {
+    pub fn step<T: Into<Buffer>>(&mut self, input: T) -> Result<Option<Buffer>> {
+        // If already done, just return nothing
+        let state = match *self {
+            AcceptContext::Continue { ref mut state } => { state },
+            _ => return Ok(None)
+        };
 
-    pub fn step(mut self, mut input_token: Buffer) -> Result<AcceptContext> {
         let mut minor_status = 0;
         let input_chan_bindings = ptr::null_mut(); // no channel bindings
         let mut src_name = ptr::null_mut();
@@ -261,9 +269,9 @@ impl AcceptContextState {
         let major_status = unsafe {
             gssapi_krb5_sys::gss_accept_sec_context(
                 &mut minor_status,
-                &mut self.context_handle,
-                self.acceptor_credentials.get_handle(),
-                input_token.get_handle(),
+                &mut state.context_handle,
+                state.acceptor_credentials.get_handle(),
+                input.into().get_handle(),
                 input_chan_bindings,
                 &mut src_name,
                 &mut mech_type,
@@ -274,27 +282,26 @@ impl AcceptContextState {
             )
         };
 
-        if self.context_handle.is_null() {
+        if state.context_handle.is_null() {
             panic!("cannot create context");
         }
 
-        let mech_type = unsafe { OID::new(mech_type) };
+        let mech_type = unsafe { OID::new_static(mech_type) };
 
         if major_status == gssapi_krb5_sys::GSS_S_COMPLETE {
-            Ok(AcceptContext::Done {
+            let ctxt = AcceptContext::Done {
                 context: Context {
-                    context_handle: self.context_handle,
+                    context_handle: state.context_handle,
                     mech_type: mech_type,
-                    time_rec: time_rec,
+                    time_rec,
                     flags: ret_flags,
                 },
-                token: output_token,
-            })
+            };
+            let _ = mem::replace(self, ctxt);
+
+            Ok(Some(output_token))
         } else if major_status == gssapi_krb5_sys::GSS_S_CONTINUE_NEEDED {
-            Ok(AcceptContext::Continue {
-                acceptor: self,
-                token: output_token,
-            })
+            Ok(Some(output_token))
         } else {
             Err(Error::new(major_status, minor_status, mech_type))
         }
